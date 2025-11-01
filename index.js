@@ -168,7 +168,7 @@ const responseBinary = (action, data, callback) => { // response from mobile
     };
 
     adminSocket
-        .timeout(15000)
+        .timeout(300000)
         .emit(action, data, (err, responses) => {
             if (err) {
                 log(`responseBinary: Ack timeout for "${action}" -> ${err.message || err}`);
